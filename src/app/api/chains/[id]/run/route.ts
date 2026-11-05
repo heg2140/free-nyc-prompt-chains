@@ -14,6 +14,9 @@ import { generate } from "@/lib/gemini";
 
 // A chain makes one model call per step, so give it room to finish.
 export const maxDuration = 300;
+// Stop trying new models this long after the run starts, leaving time to
+// save what happened before the server cuts the request off.
+const RUN_BUDGET_MS = 280_000;
 
 function readInputs(body: unknown): RunInputs | string {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -73,6 +76,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chains/[id]
     return NextResponse.json({ error: runError?.message ?? "Couldn't start the run." }, { status: 500 });
   }
 
+  const deadline = Date.now() + RUN_BUDGET_MS;
   const outputs: string[] = [];
   let suggestions: Suggestion[] | null = null;
 
@@ -92,7 +96,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chains/[id]
           userPrompt,
           temperature: step.temperature === null ? null : Number(step.temperature),
           wantSuggestions: step.output_type === "suggestions",
-        }));
+        }, deadline));
         if (step.output_type === "suggestions") suggestions = parseSuggestions(output);
       } catch (err) {
         stepError = err;

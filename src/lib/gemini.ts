@@ -2,11 +2,23 @@ import { MODELS } from "@/lib/chain";
 import { NEIGHBORHOODS } from "@/lib/explore-constants";
 
 const TIMEOUT_MS = 45_000;
-// Busy (503), rate limited (429), server error (500): worth retrying.
-const RETRY_STATUSES = new Set([429, 500, 503]);
-const RETRY_DELAYS_MS = [1_000, 3_000];
+// Busy or server error: worth trying the same model again after a pause.
+const BUSY_STATUSES = new Set([500, 503]);
+// Out of quota: the same model won't recover soon, so go straight to the next.
+const QUOTA_STATUS = 429;
+const BUSY_RETRY_DELAYS_MS = [1_500, 4_000];
+// Don't start another attempt with less than this left before the deadline.
+const MIN_ATTEMPT_MS = 8_000;
 
-class RetryableError extends Error {}
+// A failure that another attempt (or another model) might get past.
+class RetryableError extends Error {
+  constructor(
+    readonly summary: string,
+    readonly retrySameModel: boolean
+  ) {
+    super(summary);
+  }
+}
 
 // Same shape the main Free NYC app asks Gemini for.
 const SUGGESTIONS_SCHEMA = {
@@ -33,31 +45,43 @@ type Request = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Calls the step's model, retrying briefly when Gemini is busy, then falls
-// back to the other models (like the main Free NYC app does). Returns the
-// model that actually answered so runs record it.
-export async function generate(request: Request): Promise<{ text: string; model: string }> {
-  const fallbacks = MODELS.filter((m) => m !== request.model);
-  let lastError: unknown;
+// "a: busy · a: busy · b: timed out" -> "a: busy ×2 · b: timed out"
+function summarize(attempts: string[]) {
+  const counts = new Map<string, number>();
+  for (const a of attempts) counts.set(a, (counts.get(a) ?? 0) + 1);
+  const list = [...counts].map(([a, n]) => (n > 1 ? `${a} ×${n}` : a)).join(" · ");
+  return `No model could answer. ${list}`;
+}
 
-  for (const [attempt, delay] of [0, ...RETRY_DELAYS_MS].entries()) {
-    if (attempt > 0) await sleep(delay);
-    try {
-      return { text: await callModel(request), model: request.model };
-    } catch (err) {
-      if (!(err instanceof RetryableError)) throw err;
-      lastError = err;
+// Calls the step's model, retrying briefly when Gemini is busy, then falls
+// back to the other models (like the main Free NYC app does). Stops before
+// `deadline` (a Date.now() timestamp) so the whole run fits in the server's
+// time limit. Returns the model that actually answered so runs record it.
+export async function generate(
+  request: Request,
+  deadline: number
+): Promise<{ text: string; model: string }> {
+  const models = [request.model, ...MODELS.filter((m) => m !== request.model)];
+  const attempts: string[] = [];
+
+  for (const model of models) {
+    for (let retry = 0; retry <= BUSY_RETRY_DELAYS_MS.length; retry++) {
+      if (retry > 0) await sleep(BUSY_RETRY_DELAYS_MS[retry - 1]);
+      const timeLeft = deadline - Date.now();
+      if (timeLeft < MIN_ATTEMPT_MS) {
+        attempts.push("ran out of time");
+        throw new Error(summarize(attempts));
+      }
+      try {
+        return { text: await callModel({ ...request, model }, Math.min(TIMEOUT_MS, timeLeft)), model };
+      } catch (err) {
+        if (!(err instanceof RetryableError)) throw err;
+        attempts.push(`${model}: ${err.summary}`);
+        if (!err.retrySameModel) break;
+      }
     }
   }
-  for (const model of fallbacks) {
-    try {
-      return { text: await callModel({ ...request, model }), model };
-    } catch (err) {
-      if (!(err instanceof RetryableError)) throw err;
-      lastError = err;
-    }
-  }
-  throw lastError;
+  throw new Error(summarize(attempts));
 }
 
 async function callModel({
@@ -66,7 +90,7 @@ async function callModel({
   userPrompt,
   temperature,
   wantSuggestions,
-}: Request) {
+}: Request, timeoutMs: number) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("The server is missing GEMINI_API_KEY.");
 
@@ -87,11 +111,11 @@ async function callModel({
         contents: [{ role: "user", parts: [{ text: userPrompt }] }],
         generationConfig,
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     }
   ).catch((err) => {
     if (err instanceof DOMException && err.name === "TimeoutError") {
-      throw new RetryableError(`${model} didn't answer within ${TIMEOUT_MS / 1000} seconds.`);
+      throw new RetryableError(`timed out after ${Math.round(timeoutMs / 1000)}s`, false);
     }
     throw err;
   });
@@ -102,8 +126,9 @@ async function callModel({
     try {
       message = JSON.parse(detail)?.error?.message ?? detail;
     } catch {}
-    const Err = RETRY_STATUSES.has(response.status) ? RetryableError : Error;
-    throw new Err(`${model} returned ${response.status}: ${message}`);
+    if (BUSY_STATUSES.has(response.status)) throw new RetryableError(`busy (${response.status})`, true);
+    if (response.status === QUOTA_STATUS) throw new RetryableError("out of quota (429)", false);
+    throw new Error(`${model} returned ${response.status}: ${message}`);
   }
 
   const data = await response.json();
