@@ -10,7 +10,7 @@ A tool for building and testing the prompt chains that generate Free NYC suggest
 
 - Create, rename, duplicate and delete prompt chains
 - Add, edit and delete steps (model, temperature, system prompt, user prompt, output type)
-- Reorder steps with up/down buttons or a "move to position" menu
+- Reorder steps with up/down buttons
 - Run a chain on a sample search and see every step's prompt and output
 - View every suggestion a chain has generated (`/chains/<id>/runs`)
 - Light, dark or system theme (the toggle in the header)
