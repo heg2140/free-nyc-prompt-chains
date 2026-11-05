@@ -25,15 +25,19 @@ function readInputs(body: unknown): RunInputs | string {
   const timeOfDay = typeof b.timeOfDay === "string" ? b.timeOfDay : "";
   const maxTravelMinutes = Number(b.maxTravelMinutes);
   const neighborhood = typeof b.neighborhood === "string" && b.neighborhood ? b.neighborhood : null;
+  const startingLat = typeof b.startingLat === "number" ? b.startingLat : NaN;
+  const startingLon = typeof b.startingLon === "number" ? b.startingLon : NaN;
 
-  if (!startingPoint) return "Enter a starting point.";
+  // Like the main app, only accept an address picked from the autocomplete.
+  if (!startingPoint || !Number.isFinite(startingLat) || !Number.isFinite(startingLon))
+    return "Pick a starting point from the address suggestions.";
   if (!(ACTIVITY_TYPES as readonly string[]).includes(activityType)) return "Pick an activity type.";
   if (!(TIMES_OF_DAY as readonly string[]).includes(timeOfDay)) return "Pick a time of day.";
   if (!Number.isFinite(maxTravelMinutes) || maxTravelMinutes <= 0 || maxTravelMinutes > 180)
     return "Travel time must be between 1 and 180 minutes.";
   if (neighborhood && !(SEARCHABLE_NEIGHBORHOODS as readonly string[]).includes(neighborhood))
     return "Pick a neighborhood from the list.";
-  return { startingPoint, activityType, timeOfDay, maxTravelMinutes, neighborhood };
+  return { startingPoint, startingLat, startingLon, activityType, timeOfDay, maxTravelMinutes, neighborhood };
 }
 
 function parseSuggestions(output: string): Suggestion[] {

@@ -25,7 +25,8 @@ Prompts can use these, and they're filled in when the chain runs:
 
 | Variable | Value |
 |---|---|
-| `${startingPoint}` | The starting address |
+| `${startingPoint}` | The starting address (picked from the autocomplete, like the main app) |
+| `${startingCoordinates}` | Its latitude and longitude, e.g. `40.8075, -73.9626` |
 | `${activityType}` | e.g. `Art / museums` |
 | `${timeOfDay}` | `Morning`, `Afternoon`, `Evening` or `Night` |
 | `${maxTravelMinutes}` | Maximum one-way travel time |

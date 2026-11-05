@@ -24,6 +24,9 @@ export type Step = {
 
 export type RunInputs = {
   startingPoint: string;
+  // Missing on runs made before the address autocomplete was added.
+  startingLat?: number;
+  startingLon?: number;
   activityType: string;
   timeOfDay: string;
   maxTravelMinutes: number;
@@ -51,6 +54,7 @@ export const MODELS = [
 
 export const INPUT_VARIABLES = [
   { name: "startingPoint", help: "Address the search starts from" },
+  { name: "startingCoordinates", help: "Latitude, longitude of the starting point" },
   { name: "activityType", help: "e.g. Art / museums" },
   { name: "timeOfDay", help: "Morning, Afternoon, Evening or Night" },
   { name: "maxTravelMinutes", help: "Maximum one-way travel time" },
@@ -86,6 +90,10 @@ export function variableProblems(step: Pick<Step, "system_prompt" | "user_prompt
 export function renderPrompt(template: string, inputs: RunInputs, outputs: string[]) {
   const values: Record<string, string> = {
     startingPoint: inputs.startingPoint,
+    startingCoordinates:
+      inputs.startingLat !== undefined && inputs.startingLon !== undefined
+        ? `${inputs.startingLat}, ${inputs.startingLon}`
+        : "unknown",
     activityType: inputs.activityType,
     timeOfDay: inputs.timeOfDay,
     maxTravelMinutes: String(inputs.maxTravelMinutes),

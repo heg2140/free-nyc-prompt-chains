@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AddressAutocomplete, type SelectedAddress } from "@/components/address-autocomplete";
 import { ACTIVITY_TYPES, SEARCHABLE_NEIGHBORHOODS, TIMES_OF_DAY } from "@/lib/explore-constants";
 import { errorBox, input, label, primaryButton } from "@/lib/ui";
 
@@ -9,10 +10,20 @@ export function RunForm({ chainId, stepCount }: { chainId: number; stepCount: nu
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Starts on Columbia so a chain can be run without typing an address.
+  const [startingPoint, setStartingPoint] = useState<SelectedAddress | null>({
+    displayName: "Columbia University, Morningside Heights, New York",
+    lat: 40.8075,
+    lon: -73.9626,
+  });
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    if (!startingPoint) {
+      setError("Pick a starting point from the address suggestions.");
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -20,7 +31,9 @@ export function RunForm({ chainId, stepCount }: { chainId: number; stepCount: nu
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          startingPoint: form.get("startingPoint"),
+          startingPoint: startingPoint.displayName,
+          startingLat: startingPoint.lat,
+          startingLon: startingPoint.lon,
           activityType: form.get("activityType"),
           timeOfDay: form.get("timeOfDay"),
           maxTravelMinutes: Number(form.get("maxTravelMinutes")),
@@ -44,13 +57,7 @@ export function RunForm({ chainId, stepCount }: { chainId: number; stepCount: nu
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <div>
         <label htmlFor="startingPoint" className={label}>Starting point</label>
-        <input
-          id="startingPoint"
-          name="startingPoint"
-          required
-          defaultValue="Columbia University, 116th St & Broadway"
-          className={input}
-        />
+        <AddressAutocomplete id="startingPoint" value={startingPoint} onChange={setStartingPoint} />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
